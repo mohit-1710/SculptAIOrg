@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2020", // This is good
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "esModuleInterop": true, // Important for interop with CommonJS style modules
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "skipLibCheck": true, // This should prevent errors from node_modules.d.ts
+    "resolveJsonModule": true,
+    "sourceMap": true, // Good for debugging
+    "baseUrl": "./src", // Correct for your alias
+    "paths": {
+      "@/*": ["*"]
+    }
+    // "experimentalDecorators": true, // Not needed unless you use decorators
+    // "emitDecoratorMetadata": true  // Not needed unless you use decorators
+  },
+  "include": ["src/**/*", "src/test-llm.ts"], // test-llm.ts moved into src directory
+  "exclude": ["node_modules", "dist"] // Removed "tests" as you might have tests later
+}

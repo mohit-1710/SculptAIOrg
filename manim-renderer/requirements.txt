@@ -1,0 +1,7 @@
+Flask==3.0.2          # Web framework (or FastAPI, e.g., fastapi==0.109.2 uvicorn[standard]==0.27.1)
+gunicorn==21.2.0      # WSGI server for Flask (use Uvicorn for FastAPI)
+manim==0.18.0         # Or your preferred Manim Community version (ensure compatibility)
+python-dotenv==1.0.1  # To load .env file for local development convenience
+boto3==1.34.48         # AWS SDK for Python (if you plan to use S3 for video storage)
+# google-cloud-storage # Uncomment and add version if using Google Cloud Storage
+# azure-storage-blob   # Uncomment and add version if using Azure Blob Storage
