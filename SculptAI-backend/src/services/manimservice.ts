@@ -4,30 +4,17 @@ import config from '../config/index.js';
 import logger from '../utils/logger.js';
 import { AppError } from '../utils/AppError.js';
 
-/**
- * Manim Rendering Service Client.
- *
- * Communicates with a separate, sandboxed Manim rendering microservice.
- * It sends Manim Python code to be executed and expects a URL to the
- * rendered video snippet in return.
- */
-
 interface ManimRenderResponse {
-  video_url?: string;
+  video_url?: string;                 // For cloud storage
+  video_filename_on_host?: string; // For local saving
   message?: string;
   error?: string;
-  details?: string;
+  details_stdout?: string; // For Manim errors
+  details_stderr?: string; // For Manim errors
   scene_identifier?: string;
+  container_save_path?: string;
 }
 
-/**
- * renderManimScene
- *
- * Sends Manim Python code to the rendering service.
- * @param manimCode The Manim Python code string.
- * @param sceneId A unique identifier for the scene (for tracking/logging).
- * @returns A Promise resolving to the URL of the rendered video.
- */
 export const renderManimScene = async (manimCode: string, sceneId: string): Promise<string> => {
   logger.info(`Sending Manim code to render service for scene ID: ${sceneId}`);
   logger.debug(`Manim code for ${sceneId} (first 150 chars): ${manimCode.substring(0,150)}...`);
@@ -38,7 +25,7 @@ export const renderManimScene = async (manimCode: string, sceneId: string): Prom
   }
 
   try {
-    const response = await axios.post<ManimRenderResponse>( // Specify expected response type
+    const response = await axios.post<ManimRenderResponse>(
       config.manimRenderService.endpoint,
       {
         manim_code: manimCode,
@@ -49,28 +36,55 @@ export const renderManimScene = async (manimCode: string, sceneId: string): Prom
       }
     );
 
-    // Check if the response indicates success and contains a video_url
-    if (response.data && response.data.video_url && typeof response.data.video_url === 'string') {
-      logger.info(`Manim scene ${sceneId} rendered successfully by service. Video URL: ${response.data.video_url}`);
-      return response.data.video_url;
-    } else {
-      // Handle cases where the rendering service might return an error in its JSON body
-      const serviceErrorMessage = response.data?.error || response.data?.message || 'Unknown error from rendering service.';
-      logger.error('Manim render service returned an error or invalid response structure.', {
-        responseData: response.data,
-        sceneId,
-        serviceErrorMessage,
+    // --- CORRECTED SUCCESS CONDITION ---
+    // Check if the renderer indicates success AND provides either a cloud URL or a local filename
+    if (response.data && response.status === 200) { // Check for 200 OK from renderer
+      if (response.data.video_url && typeof response.data.video_url === 'string') {
+        logger.info(`Manim scene ${sceneId} rendered (cloud). Video URL: ${response.data.video_url}`);
+        return response.data.video_url; // This is what the orchestration service expects
+      } else if (response.data.video_filename_on_host && typeof response.data.video_filename_on_host === 'string') {
+        logger.info(`Manim scene ${sceneId} rendered (local). Filename: ${response.data.video_filename_on_host}. Path in container: ${response.data.container_save_path}`);
+        // IMPORTANT: The orchestration service expects a URL.
+        // For local saving, we don't have a directly web-accessible URL unless you set up a local file server.
+        // For now, let's return a placeholder or the filename, and the orchestration service
+        // needs to be aware of this difference if it strictly needs a URL for further processing.
+        // Ideally, the Python service should always aim to provide a URL (e.g., S3 presigned URL for local files if served temporarily).
+        // For this iteration, we will return the filename, and the consuming service needs to know this is not a direct URL.
+        // A better approach would be for the python service to return a more structured success object.
+        // Let's return a "conceptual URL" or the filename as a string for now.
+        // The orchestrator will store this. The frontend would need a different way to access local files.
+        return `localfile:${response.data.video_filename_on_host}`; // Or just response.data.video_filename_on_host
+      } else if (response.data.error) { // Renderer might have returned 200 but with an error message
+        logger.error('Manim render service returned 200 but with an error in its payload.', {
+            responseData: response.data, sceneId
+        });
+        throw new AppError(`Manim rendering service reported an error: ${response.data.error}`, 502);
+      }
+       else {
+        // Successful status code but unexpected payload
+        logger.error('Manim render service returned 200 but with an unexpected payload structure.', {
+            responseData: response.data, sceneId
+        });
+        throw new AppError('Manim rendering service returned an unexpected success payload.', 502);
+      }
+    } else if (response.data && response.data.error) { // If renderer returned non-200 but with JSON error
+        logger.error('Manim render service returned an error payload.', {
+            status: response.status, responseData: response.data, sceneId
+        });
+        throw new AppError(`Manim rendering service failed: ${response.data.error}`, response.status || 502);
+    }
+     else {
+      // Non-200 status without a specific error in data
+      logger.error('Manim render service returned an unexpected non-200 status or invalid response.', {
+        status: response.status, responseData: response.data, sceneId
       });
-      throw new AppError(
-        `Manim rendering service reported an error: ${serviceErrorMessage}`,
-        502 // Bad Gateway, as our service depends on another
-      );
+      throw new AppError('Manim rendering service returned an unexpected response.', response.status || 502);
     }
   } catch (error) {
-    const axiosError = error as AxiosError<ManimRenderResponse>; // Type the error for Axios
+    const axiosError = error as AxiosError<ManimRenderResponse>;
     if (axiosError.isAxiosError) {
       const responseData = axiosError.response?.data;
-      const serviceErrorMessage = responseData?.error || responseData?.message || axiosError.message;
+      const serviceErrorMessage = responseData?.error || responseData?.details_stderr || responseData?.message || axiosError.message;
 
       logger.error(`Axios error calling Manim render service for scene ${sceneId}:`, {
         message: serviceErrorMessage,
@@ -79,16 +93,14 @@ export const renderManimScene = async (manimCode: string, sceneId: string): Prom
         responseData: responseData,
       });
 
-      if (axiosError.code === 'ECONNABORTED' || axiosError.code === 'ETIMEDOUT') { // Timeout
-        throw new AppError(`Manim rendering for scene ${sceneId} timed out.`, 504); // Gateway Timeout
+      if (axiosError.code === 'ECONNABORTED' || axiosError.code === 'ETIMEDOUT') {
+        throw new AppError(`Manim rendering for scene ${sceneId} timed out.`, 504);
       }
-      // Use status from rendering service if available, otherwise 502
       throw new AppError(
         `Failed to render Manim scene ${sceneId}. Service Error: ${serviceErrorMessage}`,
         axiosError.response?.status || 502
       );
     }
-    // For non-Axios errors
     logger.error(`Unexpected error in renderManimScene for scene ${sceneId}:`, error);
     throw new AppError('An unexpected error occurred while trying to render the Manim scene.', 500, false);
   }
