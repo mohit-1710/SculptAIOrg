@@ -34,14 +34,36 @@ SulptAI is an AI-powered web platform that transforms natural language prompts i
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/sulptai.git
-cd sculptai
+git clone [https://github.com/Krishna3451/SculptAI]
+cd SculptAI-frontend
 
 # Install dependencies
 npm install
 
 # Start the development server
 npm run dev
+
+# backend
+cd ../SculptAI-backend
+
+# Install dependencies
+npm install
+
+# Start the development server
+npm run dev
+
+#Run Everything with Docker
+docker-compose up --build
+
+# Run Frontend in Docker
+cd SculptAI-frontend
+docker build -t sulptai-frontend .
+docker run -p 3000:3000 sulptai-frontend
+
+# Run Backend in Docker
+cd SculptAI-backend
+docker build -t sulptai-backend .
+docker run -p 3000:3000 sulptai-frontend
 
 ## Cloud Storage Implementation
 
