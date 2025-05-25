@@ -1,11 +1,11 @@
 import axios, { AxiosError } from 'axios';
 
 // Define base URL based on environment
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
 
 // Create axios instance with default config
 const api = axios.create({
-  baseURL: BASE_URL,
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -32,8 +32,8 @@ export const formatVideoUrl = (videoPath: string | undefined): string | undefine
   // If it's a relative path from the backend (often starting with /videos/)
   if (videoPath.startsWith('/videos/')) {
     // Extract base server URL (without the /api/vX part)
-    const serverUrl = BASE_URL.split('/api')[0]; 
-    return `${serverUrl}${videoPath}`;
+    const serverRoot = API_BASE_URL.substring(0, API_BASE_URL.indexOf('/api/v1'));
+    return `${serverRoot}${videoPath}`;
   }
   
   // For local file paths returned by the backend
@@ -44,14 +44,14 @@ export const formatVideoUrl = (videoPath: string | undefined): string | undefine
   
   // If the path is just a filename, assume it's in the videos directory
   if (!videoPath.includes('/') && !videoPath.includes('\\')) {
-    const serverUrl = BASE_URL.split('/api')[0];
-    return `${serverUrl}/videos/${videoPath}`;
+    const serverRoot = API_BASE_URL.substring(0, API_BASE_URL.indexOf('/api/v1'));
+    return `${serverRoot}/videos/${videoPath}`;
   }
   
   // Default case - just prefix with the server URL if it's a relative path
   if (videoPath.startsWith('/')) {
-    const serverUrl = BASE_URL.split('/api')[0];
-    return `${serverUrl}${videoPath}`;
+    const serverRoot = API_BASE_URL.substring(0, API_BASE_URL.indexOf('/api/v1'));
+    return `${serverRoot}${videoPath}`;
   }
   
   // Default case - return as is
@@ -79,8 +79,8 @@ export const formatAudioUrl = (audioPath: string | undefined): string | undefine
   // If it's a relative path from the backend (often starting with /videos/)
   if (audioPath.startsWith('/videos/')) {
     // Extract base server URL (without the /api/vX part)
-    const serverUrl = BASE_URL.split('/api')[0]; 
-    return `${serverUrl}${audioPath}`;
+    const serverRoot = API_BASE_URL.substring(0, API_BASE_URL.indexOf('/api/v1'));
+    return `${serverRoot}${audioPath}`;
   }
   
   // For local file paths returned by the backend
@@ -91,14 +91,14 @@ export const formatAudioUrl = (audioPath: string | undefined): string | undefine
   
   // If the path is just a filename, assume it's in the videos directory
   if (!audioPath.includes('/') && !audioPath.includes('\\')) {
-    const serverUrl = BASE_URL.split('/api')[0];
-    return `${serverUrl}/videos/${audioPath}`;
+    const serverRoot = API_BASE_URL.substring(0, API_BASE_URL.indexOf('/api/v1'));
+    return `${serverRoot}/videos/${audioPath}`;
   }
   
   // Default case - just prefix with the server URL if it's a relative path
   if (audioPath.startsWith('/')) {
-    const serverUrl = BASE_URL.split('/api')[0];
-    return `${serverUrl}${audioPath}`;
+    const serverRoot = API_BASE_URL.substring(0, API_BASE_URL.indexOf('/api/v1'));
+    return `${serverRoot}${audioPath}`;
   }
   
   // Default case - return as is

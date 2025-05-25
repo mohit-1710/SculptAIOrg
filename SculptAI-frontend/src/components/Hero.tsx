@@ -127,9 +127,14 @@ const shapes = [
 
           {/* Video Container */}
           <div className="relative z-10 rounded-2xl overflow-hidden bg-gray-900/90 shadow-2xl backdrop-blur-sm border border-white/10">
-            <div className="aspect-video flex items-center justify-center text-white/70">
-              Demo Video Will Go Here
-            </div>
+            <video 
+              className="aspect-video w-full h-full object-cover" 
+              src="/demo - Trim.mp4" 
+              autoPlay 
+              loop 
+              muted 
+              playsInline 
+            />
 
             {/* Floating Elements Around Video */}
             <motion.div

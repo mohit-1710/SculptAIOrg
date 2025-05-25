@@ -79,7 +79,7 @@ export const renderManimScene = async (manimCode: string, sceneId: string, narra
 
     // --- Handle 200 Success Cases ---
     if (response.status === 200) {
-      // Check for video_url first (cloud storage case)
+      // Check for video_url (cloud storage case)
       if (response.data.video_url) {
         logger.info(`Manim render service successfully rendered scene ${sceneId} to cloud:`, {
           videoUrl: response.data.video_url,
@@ -94,43 +94,17 @@ export const renderManimScene = async (manimCode: string, sceneId: string, narra
           // Return object with both video and audio URLs
           return {
             video_url: response.data.video_url,
-            audio_url: audioUrl
+            audio_url: audioUrl,
+            scene_identifier: response.data.scene_identifier // Pass through scene_identifier
           };
         }
         
-        return { video_url: response.data.video_url };
+        return { 
+            video_url: response.data.video_url,
+            scene_identifier: response.data.scene_identifier // Pass through scene_identifier
+        };
       }
-      // Check for video_filename_on_host (local file case)
-      else if (response.data.video_filename_on_host) {
-        // Get the filename from the response
-        const filename = response.data.video_filename_on_host;
-        
-        // Log the original local path for debugging
-        const localVideoPath = path.join(config.manimRenderService.outputDir, filename);
-        logger.info(`Manim render service successfully rendered scene ${sceneId} to local file:`, {
-          videoFilename: filename,
-          localVideoPath,
-          sceneId
-        });
-        
-        // Upload the video file to Google Cloud Storage
-        const videoUrl = await uploadVideo(localVideoPath, sceneId);
-        logger.info(`Video file uploaded to Google Cloud Storage: ${videoUrl}`);
-        
-        // If narration is enabled and text is provided, add TTS
-        if (config.tts.enabled && narrationText) {
-          // Generate narration audio (will be uploaded to cloud storage)
-          const audioUrl = await generateNarrationAudio(narrationText, sceneId);
-          
-          // Return object with both video and audio URLs
-          return {
-            video_url: videoUrl,
-            audio_url: audioUrl
-          };
-        }
-        
-        return { video_url: videoUrl };
-      }
+      // No video_url means the new Railway service did not behave as expected or an old local-first service responded.
       else if (response.data.error) { // Renderer might have returned 200 but with an error message
         logger.error('Manim render service returned 200 but with an error in its payload.', {
           responseData: response.data,
@@ -142,12 +116,12 @@ export const renderManimScene = async (manimCode: string, sceneId: string, narra
           original_manim_code: manimCode // Include the original code for debugging
         });
       } else {
-        // Successful status code but unexpected payload
-        logger.error('Manim render service returned 200 but with an unexpected payload structure.', {
+        // Successful status code but unexpected payload (missing video_url)
+        logger.error('Manim render service returned 200 but with an unexpected payload structure (missing video_url).', {
           responseData: response.data,
           sceneId
         });
-        throw new AppError('Manim rendering service returned an unexpected success payload.', 502, true, {
+        throw new AppError('Manim rendering service returned an unexpected success payload (missing video_url).', 502, true, {
           type: 'RENDERER_UNEXPECTED_SUCCESS_PAYLOAD',
           renderer_response: response.data,
           original_manim_code: manimCode // Include the original code for debugging

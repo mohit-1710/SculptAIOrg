@@ -76,7 +76,7 @@ const config = {
    * Manim Rendering Service configurations.
    */
   manimRenderService: {
-    endpoint: process.env.MANIM_RENDER_ENDPOINT || 'http://localhost:8080',
+    endpoint: process.env.MANIM_RENDER_ENDPOINT || 'https://dockerdeploy-production.up.railway.app',
     timeout: parseInt(process.env.MANIM_RENDER_TIMEOUT_MS || '300000', 10), // 5 minutes
     outputDir: process.env.MANIM_OUTPUT_DIR || '/manim-videos', // Path where videos are stored and accessible
     useStaticServing: process.env.MANIM_USE_STATIC_SERVING === 'true',

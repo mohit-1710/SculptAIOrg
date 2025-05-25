@@ -2,20 +2,26 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 
 export const BackendStatusChecker = () => {
-  const [isBackendAvailable, setIsBackendAvailable] = useState<boolean | null>(null);
+  const [isBackendUp, setIsBackendUp] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [checkCount, setCheckCount] = useState(0);
   const [checking, setChecking] = useState(false);
 
   const checkBackendStatus = async () => {
     try {
       setChecking(true);
-      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
-      // Try to access the status endpoint which should be available
-      await axios.get(`${baseUrl}/status`, { timeout: 5000 });
-      setIsBackendAvailable(true);
+      const baseUrl = import.meta.env.VITE_API_URL || 'dockerdeploy-production.up.railway.app';
+      // We need to ensure we are pinging a valid health check endpoint.
+      // VITE_API_URL might be 'https://<...>/api/v1', so we need the base part.
+      const healthCheckUrl = baseUrl.includes('/api/v1') 
+        ? baseUrl.replace('/api/v1', '/health') 
+        : `${baseUrl}/health`;
+
+      await axios.get(healthCheckUrl);
+      setIsBackendUp(true);
     } catch (error) {
       console.error('Backend connectivity check failed:', error);
-      setIsBackendAvailable(false);
+      setIsBackendUp(false);
     } finally {
       setChecking(false);
     }
@@ -39,7 +45,7 @@ export const BackendStatusChecker = () => {
     setCheckCount(prev => prev + 1);
   };
 
-  if (isBackendAvailable === false) {
+  if (isBackendUp === false) {
     return (
       <div className="fixed bottom-4 right-4 bg-red-50 border border-red-400 text-red-700 px-4 py-3 rounded shadow-lg z-50 max-w-md">
         <div className="flex flex-col">

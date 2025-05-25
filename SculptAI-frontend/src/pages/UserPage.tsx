@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Sidebar, SidebarBody, SidebarLink } from '../components/Sidebar';
-import { Home, Settings, Video, User, History, Send } from 'lucide-react';
+import { Home, Settings, Video, User, History, Send, Mic, MicOff } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { sculptAPI } from '../lib/api';
 import type { IProjectData, ISceneOutput } from '../lib/api';
@@ -20,6 +20,7 @@ export default function UserPage() {
   const [generationProgress, setGenerationProgress] = useState(0);
   const [isAudioLoaded, setIsAudioLoaded] = useState(false);
   const [audioError, setAudioError] = useState<string | null>(null);
+  const [isTTSSpeaking, setIsTTSSpeaking] = useState(false);
 
   // Handle audio-video synchronization
   useEffect(() => {
@@ -152,6 +153,15 @@ export default function UserPage() {
     if (englishVoice) {
       utterance.voice = englishVoice;
     }
+
+    utterance.onstart = () => setIsTTSSpeaking(true);
+    utterance.onend = () => setIsTTSSpeaking(false); // Covers cancel()
+    utterance.onerror = () => {
+      console.error("Speech synthesis error");
+      setIsTTSSpeaking(false);
+    };
+    utterance.onpause = () => setIsTTSSpeaking(false);
+    utterance.onresume = () => setIsTTSSpeaking(true);
     
     window.speechSynthesis.speak(utterance);
   };
@@ -195,6 +205,9 @@ export default function UserPage() {
 
     // Add user message
     setMessages(prev => [...prev, { text: prompt, type: 'user' }]);
+    const submittedPrompt = prompt; // Store the prompt for API call
+    setPrompt(''); // Clear the input field immediately
+
     setIsLoading(true);
     setGenerationProgress(10); // Start progress
     
@@ -214,7 +227,7 @@ export default function UserPage() {
       }, 2000);
 
       // Call the backend API to process the user idea
-      const result = await sculptAPI.createAnimationFromIdea(prompt);
+      const result = await sculptAPI.createAnimationFromIdea(submittedPrompt);
       
       // Clean up progress interval
       clearInterval(progressInterval);
@@ -264,73 +277,59 @@ export default function UserPage() {
       }]);
     } finally {
       setIsLoading(false);
-      setPrompt('');
       // Reset progress after a delay to complete the visual transition
       setTimeout(() => setGenerationProgress(0), 1000);
     }
   };
 
   const handleSceneSelect = (scene: ISceneOutput) => {
-    if (scene.status !== 'completed') return;
-    
-    // Reset audio states
-    setIsAudioLoaded(false);
-    setAudioError(null);
-    
-    // Process the scene's video URL if it's a local file path
-    if (scene.video_url) {
-      // Check if it's a file:/// URL or a local Windows path
-      if (scene.video_url.startsWith('file://') || scene.video_url.match(/^[a-zA-Z]:\\/)) {
-        console.warn('Detected local file path in video URL, converting:', scene.video_url);
-        // Extract the filename from the path
-        const fileName = scene.video_url.split(/[\/\\]/).pop();
-        // Construct a server URL
-        const serverUrl = import.meta.env.VITE_API_URL?.split('/api')[0] || 'http://localhost:5000';
-        
-        // Create a new scene object with the corrected URL
-        const updatedScene = {
-          ...scene,
-          video_url: `${serverUrl}/videos/${fileName}`
-        };
-        
-        console.log('Converted video URL to:', updatedScene.video_url);
-        setSelectedScene(updatedScene);
-      } else {
-        // Use the scene as is
-        setSelectedScene(scene);
-      }
-    } else {
-      setSelectedScene(scene);
-    }
-    
+    setSelectedScene(scene);
     setIsVideoLoading(true);
     setVideoError(null);
+    setIsAudioLoaded(false); // Reset audio loaded state
+    setAudioError(null); // Reset audio error state
+
+    // Check if video_url is an absolute URL (e.g., from GCS)
+    let videoSrc = scene.video_url;
+    if (scene.video_url && !scene.video_url.startsWith('http')) {
+      // If not absolute, construct it using the base URL from env (fallback if needed)
+      // This part might be deprecated if all URLs are absolute from GCS
+      const baseUrl = import.meta.env.VITE_MANIM_VIDEOS_BASE_URL || `${import.meta.env.VITE_API_URL?.split('/api')[0]}/videos`;
+      videoSrc = `${baseUrl}/${scene.video_url}`;
+    }
     
-    // Generate audio URL from scene if not present
-    if (!scene.audio_url && scene.scene_number) {
-      const serverUrl = import.meta.env.VITE_API_URL?.split('/api')[0] || 'http://localhost:5000';
-      const projectId = currentProject?.projectId;
-      const audioFileName = `${projectId}_scene_${scene.scene_number}_narration.mp3`;
-      const generatedAudioUrl = `${serverUrl}/videos/${audioFileName}`;
+    // Update video source
+    if (videoRef.current) {
+      videoRef.current.src = videoSrc || '';
+    }
+
+    // Handle audio source similarly
+    if (scene.audio_url) {
+      let audioSrc = scene.audio_url;
+      if (!scene.audio_url.startsWith('http')) {
+        // This part might be deprecated if all URLs are absolute from GCS
+        const baseUrl = import.meta.env.VITE_MANIM_VIDEOS_BASE_URL || `${import.meta.env.VITE_API_URL?.split('/api')[0]}/audios`; // Assuming an /audios endpoint or similar
+        audioSrc = `${baseUrl}/${scene.audio_url}`;
+      }
       
-      // First check if the audio file exists
-      preCheckAudioExists(generatedAudioUrl).then(exists => {
-        if (exists) {
-          // Create a new scene object with the generated audio URL
-          const sceneWithAudio = {
-            ...scene,
-            audio_url: generatedAudioUrl
-          };
-          
-          setSelectedScene(sceneWithAudio);
-          console.log('Generated audio URL:', generatedAudioUrl);
-        } else {
-          // If audio doesn't exist, just set the scene without audio URL
-          console.warn('Audio file does not exist:', generatedAudioUrl);
-          setAudioError("Narration audio not available");
-          setSelectedScene(scene);
-        }
-      });
+      if (audioRef.current) {
+        audioRef.current.src = audioSrc;
+        // Pre-check if audio file actually exists to prevent console errors
+        preCheckAudioExists(audioSrc).then(exists => {
+          if (exists) {
+            // Audio will be loaded by the browser if src is valid.
+            // We rely on onLoadedData or onError events of the audio element.
+          } else {
+            handleAudioError(); // Manually trigger error if pre-check fails
+          }
+        });
+      }
+    } else {
+      // No audio URL, may use TTS if narration is present
+      setAudioError("No audio file provided.");
+      if (audioRef.current) {
+        audioRef.current.src = ''; // Clear any previous audio source
+      }
     }
   };
 
@@ -571,16 +570,18 @@ export default function UserPage() {
                   {selectedScene.narration && (
                     <button
                       onClick={() => {
-                        if (selectedScene.narration && 'speechSynthesis' in window) {
-                          useBrowserTTS(selectedScene.narration);
+                        if (isTTSSpeaking) {
+                          window.speechSynthesis.cancel(); // This will trigger onend
+                        } else {
+                          if (selectedScene?.narration && 'speechSynthesis' in window) {
+                            useBrowserTTS(selectedScene.narration);
+                          }
                         }
                       }}
                       className="bg-black bg-opacity-60 text-white p-2 rounded-full hover:bg-opacity-80 transition-all"
-                      title="Play narration using browser speech"
+                      title={isTTSSpeaking ? "Stop browser speech" : "Play narration using browser speech"}
                     >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                      </svg>
+                      {isTTSSpeaking ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
                     </button>
                   )}
                 </div>

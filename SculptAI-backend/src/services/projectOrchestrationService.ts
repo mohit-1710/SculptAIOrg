@@ -82,6 +82,7 @@ export const processStoryboardToVideoScenes = async (
           // Handle the new response format which could be an object with video_url and audio_url
           let videoUrl: string | undefined;
           let audioUrl: string | undefined;
+          let sceneIdentifier: string | undefined;
           
           if (typeof renderResult === 'string') {
             // Legacy format - just a video URL string
@@ -90,6 +91,7 @@ export const processStoryboardToVideoScenes = async (
             // New format - object with video_url and optional audio_url
             videoUrl = renderResult.video_url;
             audioUrl = renderResult.audio_url;
+            sceneIdentifier = renderResult.scene_identifier;
           }
           
           sceneProcessedSuccessfully = true;
@@ -103,6 +105,7 @@ export const processStoryboardToVideoScenes = async (
             manim_code: manimCode,
             video_url: videoUrl,
             audio_url: audioUrl,
+            scene_identifier: sceneIdentifier,
             status: 'completed' as const,
             correction_attempts: correctionAttempts
           };
