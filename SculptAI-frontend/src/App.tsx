@@ -2,11 +2,13 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import HomePage from './pages/HomePage';
 import UserPage from './pages/UserPage';
+import { BackendStatusChecker } from './components/BackendStatusChecker';
 import './App.css';
 
 function App() {
   return (
       <Router>
+        <BackendStatusChecker />
         <Routes>
           <Route path="/" element={
             <div className="min-h-screen bg-[#FCFCFC] text-gray-900 dark:text-white transition-colors duration-200">

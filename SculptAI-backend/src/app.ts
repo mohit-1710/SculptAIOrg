@@ -3,12 +3,18 @@ import express, { Application, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import config from './config/index.js';
 import { AppError } from './utils/AppError.js';
 import logger from './utils/logger.js';
 
 // Import the main API router
 import apiRoutes from './api/routes/index.js'; // Add .js extension
+
+// Get __dirname equivalent in ESM
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app: Application = express();
 
@@ -24,6 +30,36 @@ if (config.env === 'development') {
   app.use(morgan('short', {
     stream: { write: (message) => logger.info(message.trim()) },
     skip: (req: Request, res: Response) => req.originalUrl === '/health' && res.statusCode < 400,
+  }));
+}
+
+// --- Static File Serving ---
+// Set up static file serving for manim videos
+if (config.manimRenderService.useStaticServing) {
+  const videoOutputDir = config.manimRenderService.outputDir;
+  const staticUrlPrefix = config.manimRenderService.staticUrlPrefix;
+  
+  // Check if the path is absolute or relative
+  const videosPath = path.isAbsolute(videoOutputDir) 
+    ? videoOutputDir 
+    : path.join(__dirname, '..', videoOutputDir);
+  
+  logger.info(`Setting up static file serving for videos at ${staticUrlPrefix} from ${videosPath}`);
+  
+  // Serve static files from the videos directory
+  app.use(staticUrlPrefix, (req, res, next) => {
+    // Add CORS headers specifically for video files
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Range');
+    res.header('Access-Control-Expose-Headers', 'Content-Range, Content-Length, Accept-Ranges');
+    res.header('Cross-Origin-Resource-Policy', 'cross-origin');
+    next();
+  }, express.static(videosPath, {
+    // Set Cache-Control headers for videos
+    setHeaders: (res) => {
+      res.setHeader('Cache-Control', 'public, max-age=86400'); // 24 hours
+    }
   }));
 }
 

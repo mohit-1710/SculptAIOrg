@@ -35,6 +35,10 @@ const config = {
          * For production, list your frontend domain(s).
          */
         origin: process.env.CORS_ORIGIN || 'http://localhost:3000', // Your frontend dev URL
+        methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'Range'],
+        exposedHeaders: ['Content-Range', 'Content-Length', 'Accept-Ranges'],
+        credentials: true
     },
     /**
      * Google Generative AI (Gemini) API Key.

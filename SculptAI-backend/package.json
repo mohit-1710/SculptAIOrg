@@ -10,7 +10,8 @@
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix",
     "prettier": "prettier --check \"src/**/*.ts\"",
-    "prettier:fix": "prettier --write \"src/**/*.ts\""
+    "prettier:fix": "prettier --write \"src/**/*.ts\"",
+    "setup-videos": "node scripts/setup-video-dir.js"
   },
   "keywords": [],
   "author": "",

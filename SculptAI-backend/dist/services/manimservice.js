@@ -58,13 +58,20 @@ export const renderManimScene = async (manimCode, sceneId) => {
             }
             // Check for video_filename_on_host (local file case)
             else if (response.data.video_filename_on_host) {
-                const videoPath = `${config.manimRenderService.outputDir}/${response.data.video_filename_on_host}`;
+                // Get the filename from the response
+                const filename = response.data.video_filename_on_host;
+                // Log the original local path for debugging
+                const localVideoPath = `${config.manimRenderService.outputDir}/${filename}`;
                 logger.info(`Manim render service successfully rendered scene ${sceneId} to local file:`, {
-                    videoFilename: response.data.video_filename_on_host,
-                    videoPath,
+                    videoFilename: filename,
+                    localVideoPath,
                     sceneId
                 });
-                return videoPath;
+                // Instead of returning the local file path, return a URL using the configured static URL prefix
+                // This creates a URL that the frontend can use to request the file from the server
+                const videoUrl = `${config.manimRenderService.staticUrlPrefix}/${filename}`;
+                logger.info(`Converted local path to URL: ${videoUrl}`);
+                return videoUrl;
             }
             else if (response.data.error) { // Renderer might have returned 200 but with an error message
                 logger.error('Manim render service returned 200 but with an error in its payload.', {
