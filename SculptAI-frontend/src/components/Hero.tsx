@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
+import { Link } from 'react-router-dom';
 
 const Hero = () => {
   const [prompt, setPrompt] = useState('');
@@ -88,9 +89,12 @@ const shapes = [
           </p>
 
           <div className="flex items-center gap-4 mb-8">
-            <button className="px-6 py-3 bg-gray-800/90 text-white rounded-lg hover:bg-gray-700 transition-all backdrop-blur-sm">
-             Get Started
-            </button>
+            <Link 
+              to="/dashboard" 
+              className="px-6 py-3 bg-gray-800/90 text-white rounded-lg hover:bg-gray-700 transition-all backdrop-blur-sm"
+            >
+              Get Started
+            </Link>
             <button className="px-6 py-3 text-gray-600 hover:text-gray-800 transition-all">
               Learn More
             </button>

@@ -72,11 +72,9 @@ export const generateNarrationAudio = async (text, sceneId) => {
         }
         logger.info(`Generated TTS audio saved to ${audioFilePath}`);
         logger.debug(`Audio file exists: ${fs.existsSync(audioFilePath)}`);
-        
         // Upload the audio file to Google Cloud Storage
         const audioUrl = await uploadAudio(audioFilePath, sceneId);
         logger.info(`Audio file uploaded to Google Cloud Storage: ${audioUrl}`);
-        
         // Return the full URL for the audio file
         return audioUrl;
     }

@@ -389,7 +389,7 @@ export default function UserPage() {
         <SidebarBody>
           <div className="flex flex-col space-y-6">
             <div className="flex items-center justify-center py-4">
-              <span className="text-xl font-bold">Sculpt AI</span>
+              <img src = '/logo.jpg'/>
             </div>
             
             <nav className="flex flex-col space-y-2">

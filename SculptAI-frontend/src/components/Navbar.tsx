@@ -12,7 +12,7 @@ export default function Navbar() {
           <Link to="/" className="flex items-center gap-2.5">
             <div className="h-9 w-9 rounded-full bg-blue-50 p-2 flex items-center justify-center">
               <img 
-                src="/logo.png"
+                src="/logo.jpg"
                 alt="SculptAI Logo"
                 className="h-5 w-auto"
               />
@@ -29,20 +29,13 @@ export default function Navbar() {
             <a href="#examples" className="text-gray-600 hover:text-blue-600 transition-all hover:scale-105">Examples</a>
           </div>
 
-          {/* Auth Buttons - Desktop */}
-          <div className="hidden md:flex items-center gap-3">
-            
-              <Link 
-                to="/login" 
-                className="px-5 py-2 text-gray-700 hover:text-blue-600 transition-all hover:scale-105"
-              >
-                Log in
-              </Link>
+          {/* Dashboard Button - Desktop */}
+          <div className="hidden md:flex items-center">
             <Link 
-              to="/signup" 
-              className="px-5 py-2 bg-gray-600 text-white rounded-full hover:bg-blue-700 transition-all hover:scale-105 shadow-md hover:shadow-xl"
+              to="/dashboard" 
+              className="px-5 py-2 bg-gray-700 text-white rounded-full hover:bg-blue-700 transition-all hover:scale-105 shadow-md hover:shadow-xl"
             >
-              Sign up
+              Dashboard
             </Link>
           </div>
 
@@ -77,16 +70,10 @@ export default function Navbar() {
           </a>
           <div className="h-px bg-gray-200 my-2"></div>
           <Link 
-            to="/login" 
-            className="text-gray-600 hover:text-blue-600 transition-all hover:scale-105 text-center"
-          >
-            Log in
-          </Link>
-          <Link 
-            to="/signup" 
+            to="/dashboard" 
             className="bg-blue-600 text-white rounded-full py-2 hover:bg-blue-700 transition-all hover:scale-105 text-center shadow-md hover:shadow-xl"
           >
-            Sign up
+            Dashboard
           </Link>
         </div>
       </div>

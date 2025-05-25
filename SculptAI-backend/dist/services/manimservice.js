@@ -4,7 +4,7 @@ import * as path from 'path';
 import config from '../config/index.js';
 import logger from '../utils/logger.js';
 import { AppError } from '../utils/AppError.js';
-import { generateNarrationAudio, mergeVideoWithAudio } from './ttsService.js';
+import { generateNarrationAudio } from './ttsService.js';
 import { uploadVideo } from './storageService.js';
 /**
  * Common Manim import issues and their fixes
@@ -80,11 +80,9 @@ export const renderManimScene = async (manimCode, sceneId, narrationText) => {
                     localVideoPath,
                     sceneId
                 });
-                
                 // Upload the video file to Google Cloud Storage
                 const videoUrl = await uploadVideo(localVideoPath, sceneId);
                 logger.info(`Video file uploaded to Google Cloud Storage: ${videoUrl}`);
-                
                 // If narration is enabled and text is provided, add TTS
                 if (config.tts.enabled && narrationText) {
                     // Generate narration audio (will be uploaded to cloud storage)
@@ -232,35 +230,32 @@ export const renderManimScene = async (manimCode, sceneId, narrationText) => {
 async function processVideoWithNarration(videoPath, narrationText, sceneId) {
     try {
         logger.info(`Processing video with narration for scene ${sceneId}`);
-        
         // 1. Generate narration audio using Eleven Labs (will be uploaded to cloud storage)
         const audioUrl = await generateNarrationAudio(narrationText, sceneId);
-        
         // For cloud storage case, we'll just return both URLs separately
         // The front-end will handle playing the video with the audio
         if (videoPath.startsWith('http')) {
             logger.info(`Using cloud storage URLs for video and audio: video=${videoPath}, audio=${audioUrl}`);
             return videoPath;
         }
-        
         // If it's a local path, we need to upload it to cloud storage
         const videoUrl = await uploadVideo(videoPath, sceneId);
         logger.info(`Uploaded video to cloud storage: ${videoUrl}`);
-        
         return videoUrl;
-    } catch (error) {
+    }
+    catch (error) {
         logger.error(`Error processing video with narration for scene ${sceneId}:`, error);
         // If processing fails, just return the original video path
         if (videoPath.startsWith('http')) {
             return videoPath;
         }
-        
         // Try to upload the original video to cloud storage as a fallback
         try {
             const videoUrl = await uploadVideo(videoPath, sceneId);
             logger.info(`Fallback: Uploaded original video to cloud storage: ${videoUrl}`);
             return videoUrl;
-        } catch (uploadError) {
+        }
+        catch (uploadError) {
             logger.error(`Failed to upload original video to cloud storage:`, uploadError);
             return videoPath;
         }
