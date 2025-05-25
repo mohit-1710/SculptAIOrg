@@ -43,13 +43,14 @@ export const validate = (schema) => // Takes a Zod schema as an argument
             // You can choose to include the detailed `errorMessages` in the AppError
             // or just a general message. For client-side display, details are good.
             return next(new AppError(`Input validation failed. ${errorMessages.map(e => `${e.field}: ${e.message}`).join('; ')}`, 400, // Bad Request
-            true // isOperational
-            ));
+            true, // isOperational
+            { errors: errorMessages }));
         }
         // If it's not a ZodError, it's an unexpected error.
         logger.error('Unexpected error during validation middleware:', error);
-        return next(new AppError('An unexpected error occurred during input validation.', 500, false) // false = not operational
-        );
+        return next(new AppError('An unexpected error occurred during input validation.', 500, false, {
+            originalError: error instanceof Error ? error.message : String(error)
+        }));
     }
 };
 //# sourceMappingURL=validatorMiddleware.js.map

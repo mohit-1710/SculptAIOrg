@@ -38,6 +38,7 @@ COPY requirements.txt ./
 
 # Install Python dependencies from requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir flake8
 
 # Copy the rest of your application code (the 'app' directory) into the container
 COPY ./app /usr/src/app/app

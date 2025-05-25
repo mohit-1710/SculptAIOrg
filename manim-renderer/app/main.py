@@ -3,6 +3,7 @@ import subprocess
 import uuid
 import shutil
 import logging
+import re # Import re for regex parsing
 from flask import Flask, request, jsonify
 # from werkzeug.utils import secure_filename # Not strictly needed for code input
 from dotenv import load_dotenv
@@ -66,6 +67,52 @@ def save_locally_and_get_host_accessible_path(job_dir_in_container: str,
         logging.error(f"Error copying video to output directory {output_dir_in_container}: {e}")
         return None
 
+def parse_manim_errors(stderr: str, stdout: str) -> dict:
+    """
+    Attempts to parse common errors from Manim's stderr.
+    Returns a dictionary with a parsed_error message and a type if an error is identified,
+    otherwise None.
+    """
+    parsed_error_summary = None
+    error_type = "UNKNOWN_MANIM_ERROR"
+
+    # Common Manim errors (can be expanded)
+    if "No scene found" in stderr or "No scene named" in stderr or "module 'scene_script' has no attribute" in stderr:
+        parsed_error_summary = "Manim rendering failed: The specified scene class was not found in the script."
+        error_type = "SCENE_NOT_FOUND"
+    elif "ModuleNotFoundError" in stderr:
+        match = re.search(r"ModuleNotFoundError: No module named '([^']*)'", stderr)
+        module_name = match.group(1) if match else "unknown"
+        parsed_error_summary = f"Manim rendering failed: A required Python module ('{module_name}') was not found. Please ensure all necessary imports are included and correct."
+        error_type = "MODULE_NOT_FOUND"
+    elif "NameError" in stderr:
+        match = re.search(r"NameError: name '([^']*)' is not defined", stderr)
+        name = match.group(1) if match else "unknown"
+        parsed_error_summary = f"Manim rendering failed: A name ('{name}') was used before it was defined. Check for typos or missing variable/object initializations."
+        error_type = "NAME_ERROR"
+    elif "AttributeError" in stderr:
+        match = re.search(r"AttributeError: '([^']*)' object has no attribute '([^']*)'", stderr)
+        obj_type = match.group(1) if match else "unknown"
+        attr_name = match.group(2) if match else "unknown"
+        parsed_error_summary = f"Manim rendering failed: An attempt was made to access an attribute ('{attr_name}') on an object ('{obj_type}') that doesn't have it."
+        error_type = "ATTRIBUTE_ERROR"
+    elif "ManimPangoCairoError" in stderr or "TEX SCENE" in stdout: # Checking stdout too for some TeX issues
+        # This is a broad category, could be made more specific
+        parsed_error_summary = "Manim rendering failed: There was an issue with text rendering (Pango/Cairo) or LaTeX compilation. Check your text elements and LaTeX expressions."
+        error_type = "TEXT_RENDERING_OR_TEX_ERROR"
+    elif "FileNotFoundError" in stderr and "assets" in stderr:
+        parsed_error_summary = "Manim rendering failed: An asset file (e.g., image, sound) was not found. Ensure all asset paths are correct and files are accessible."
+        error_type = "ASSET_NOT_FOUND"
+    elif "shaders" in stderr.lower() and ("error" in stderr.lower() or "failed" in stderr.lower()):
+        parsed_error_summary = "Manim rendering failed: There was an issue with shaders, possibly related to OpenGL or complex graphical operations."
+        error_type = "SHADER_ERROR"
+    
+    # Add more specific parsers as needed
+
+    if parsed_error_summary:
+        return {"parsed_error": parsed_error_summary, "error_type": error_type}
+    return None
+
 # --- API Endpoint ---
 @app.route("/render", methods=["POST"])
 def render_manim_scene_endpoint():
@@ -80,6 +127,45 @@ def render_manim_scene_endpoint():
     if not manim_code or not isinstance(manim_code, str):
         logging.warning(f"Missing or invalid 'manim_code' for scene: {scene_identifier}")
         return jsonify({"error": "Missing or invalid 'manim_code' (must be a string)"}), 400
+
+    # --- Lint the Manim code ---
+    # Create a temporary file for linting
+    temp_lint_file_path = None
+    try:
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".py", encoding="utf-8") as tmp_script:
+            tmp_script.write(manim_code)
+            temp_lint_file_path = tmp_script.name
+        
+        lint_process = subprocess.run(
+            ["flake8", "--select=F,E9", "--ignore=F403,F405", temp_lint_file_path], # Focus on fatal (F) and syntax errors (E9xx), ignore star import warnings
+            capture_output=True,
+            text=True,
+            encoding="utf-8"
+        )
+
+        if lint_process.returncode != 0:
+            logging.warning(f"Linting failed for scene {scene_identifier}. Flake8 stdout:\\n{lint_process.stdout}")
+            # Clean up the temporary lint file
+            if temp_lint_file_path and os.path.exists(temp_lint_file_path):
+                os.remove(temp_lint_file_path)
+            return jsonify({
+                "error": "Linting failed for the provided Manim code.",
+                "details_stdout": lint_process.stdout,
+                "details_stderr": lint_process.stderr # Though flake8 usually outputs to stdout
+            }), 400 # Bad request due to code quality issues
+        
+        # Clean up the temporary lint file if linting passed
+        if temp_lint_file_path and os.path.exists(temp_lint_file_path):
+            os.remove(temp_lint_file_path)
+            temp_lint_file_path = None # Reset path
+
+    except Exception as lint_e:
+        logging.error(f"Error during linting setup or execution for scene {scene_identifier}: {lint_e}")
+        if temp_lint_file_path and os.path.exists(temp_lint_file_path):
+            os.remove(temp_lint_file_path)
+        return jsonify({"error": "Server error during code linting."}), 500
+    # --- End Linting ---
 
     job_id = generate_unique_id()
     job_dir = os.path.join(TEMP_RENDER_DIR, job_id) # Temp working dir for Manim
@@ -123,11 +209,19 @@ def render_manim_scene_endpoint():
             logging.error(f"Manim rendering failed for job {job_id}. Code: {process.returncode}")
             logging.error(f"Manim STDOUT:\n{process.stdout}")
             logging.error(f"Manim STDERR:\n{process.stderr}")
-            return jsonify({
+            
+            parsed_error_info = parse_manim_errors(process.stderr, process.stdout)
+            response_payload = {
                 "error": "Manim rendering process failed.",
                 "details_stdout": process.stdout,
                 "details_stderr": process.stderr
-            }), 500
+            }
+            if parsed_error_info:
+                response_payload["parsed_error"] = parsed_error_info["parsed_error"]
+                response_payload["error_type"] = parsed_error_info["error_type"]
+                logging.error(f"Parsed Manim Error for job {job_id}: {parsed_error_info['error_type']} - {parsed_error_info['parsed_error']}")
+
+            return jsonify(response_payload), 500
 
         temp_video_path_in_container = os.path.join(job_dir, manim_output_relative_path)
         logging.info(f"Manim process completed for job {job_id}. Expected output: {temp_video_path_in_container}")
