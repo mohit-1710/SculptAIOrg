@@ -28,6 +28,16 @@ SulptAI is an AI-powered web platform that transforms natural language prompts i
 - ⚙️ **Node.js / Express** or **Python (FastAPI)** — serving AI requests
 - 🐳 **Docker** — containerized environment for easy deployment
 
+- ## Cloud Storage Implementation
+
+SculptAI now uses Google Cloud Storage to store videos and audio files. This provides:
+
+- Improved scalability and reliability
+- Accessibility from anywhere
+- Reduced server storage requirements
+
+See [README-cloud-storage.md](SculptAI-backend/README-cloud-storage.md) for full implementation details.
+
 ---
 
 ## 📦 Installation
@@ -58,19 +68,9 @@ docker-compose up --build
 # Run Frontend in Docker
 cd SculptAI-frontend
 docker build -t sulptai-frontend .
-docker run -p 3000:3000 sulptai-frontend
+docker run -p 8080:8080 sulptai-frontend
 
 # Run Backend in Docker
 cd SculptAI-backend
 docker build -t sulptai-backend .
-docker run -p 3000:3000 sulptai-frontend
-
-## Cloud Storage Implementation
-
-SculptAI now uses Google Cloud Storage to store videos and audio files. This provides:
-
-- Improved scalability and reliability
-- Accessibility from anywhere
-- Reduced server storage requirements
-
-See [README-cloud-storage.md](SculptAI-backend/README-cloud-storage.md) for full implementation details.
+docker run -p 5000:5000 sulptai-frontend
