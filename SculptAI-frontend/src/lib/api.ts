@@ -11,7 +11,7 @@ const api = axios.create({
   },
 });
 
-// Update the formatVideoUrl function to explicitly handle Windows file paths
+// Update the formatVideoUrl function to handle Google Cloud Storage URLs
 export const formatVideoUrl = (videoPath: string | undefined): string | undefined => {
   if (!videoPath) return undefined;
   
@@ -19,17 +19,14 @@ export const formatVideoUrl = (videoPath: string | undefined): string | undefine
   
   // If it's already a full URL (starts with http:// or https://)
   if (videoPath.startsWith('http://') || videoPath.startsWith('https://')) {
+    // It's a cloud storage URL, return as is
     return videoPath;
   }
   
   // Handle Windows file paths (C:\ or file:///C:/)
   if (videoPath.match(/^[a-zA-Z]:\\/) || videoPath.match(/^file:\/\/\/[a-zA-Z]:\//)) {
-    console.log('Detected Windows file path');
-    // Extract the filename from the path
-    const fileName = videoPath.split(/[\/\\]/).pop();
-    // Use the backend's video serving URL
-    const serverUrl = BASE_URL.split('/api')[0];
-    return `${serverUrl}/videos/${fileName}`;
+    console.warn('Local file paths are no longer supported. Please use cloud storage.');
+    return undefined;
   }
   
   // If it's a relative path from the backend (often starting with /videos/)
@@ -41,12 +38,8 @@ export const formatVideoUrl = (videoPath: string | undefined): string | undefine
   
   // For local file paths returned by the backend
   if (videoPath.includes('/manim-videos/') || videoPath.includes('\\manim-videos\\')) {
-    // Transform local file path to backend static URL
-    const serverUrl = BASE_URL.split('/api')[0];
-    
-    // Extract filename, handling both Unix and Windows paths
-    const fileName = videoPath.split(/[\/\\]/).pop();
-    return `${serverUrl}/videos/${fileName}`;
+    console.warn('Local file paths are no longer supported. Please use cloud storage.');
+    return undefined;
   }
   
   // If the path is just a filename, assume it's in the videos directory
@@ -65,11 +58,59 @@ export const formatVideoUrl = (videoPath: string | undefined): string | undefine
   return videoPath;
 };
 
+// Create a new function to format audio URLs, similar to formatVideoUrl
+export const formatAudioUrl = (audioPath: string | undefined): string | undefined => {
+  if (!audioPath) return undefined;
+  
+  console.log('Formatting audio URL from:', audioPath);
+  
+  // If it's already a full URL (starts with http:// or https://)
+  if (audioPath.startsWith('http://') || audioPath.startsWith('https://')) {
+    // It's a cloud storage URL, return as is
+    return audioPath;
+  }
+  
+  // Handle Windows file paths (C:\ or file:///C:/)
+  if (audioPath.match(/^[a-zA-Z]:\\/) || audioPath.match(/^file:\/\/\/[a-zA-Z]:\//)) {
+    console.warn('Local file paths are no longer supported. Please use cloud storage.');
+    return undefined;
+  }
+  
+  // If it's a relative path from the backend (often starting with /videos/)
+  if (audioPath.startsWith('/videos/')) {
+    // Extract base server URL (without the /api/vX part)
+    const serverUrl = BASE_URL.split('/api')[0]; 
+    return `${serverUrl}${audioPath}`;
+  }
+  
+  // For local file paths returned by the backend
+  if (audioPath.includes('/manim-videos/') || audioPath.includes('\\manim-videos\\')) {
+    console.warn('Local file paths are no longer supported. Please use cloud storage.');
+    return undefined;
+  }
+  
+  // If the path is just a filename, assume it's in the videos directory
+  if (!audioPath.includes('/') && !audioPath.includes('\\')) {
+    const serverUrl = BASE_URL.split('/api')[0];
+    return `${serverUrl}/videos/${audioPath}`;
+  }
+  
+  // Default case - just prefix with the server URL if it's a relative path
+  if (audioPath.startsWith('/')) {
+    const serverUrl = BASE_URL.split('/api')[0];
+    return `${serverUrl}${audioPath}`;
+  }
+  
+  // Default case - return as is
+  return audioPath;
+};
+
 // Process scene data to ensure video URLs are properly formatted
 export const processSceneData = (scene: ISceneOutput): ISceneOutput => {
   return {
     ...scene,
-    video_url: formatVideoUrl(scene.video_url)
+    video_url: formatVideoUrl(scene.video_url),
+    audio_url: formatAudioUrl(scene.audio_url)
   };
 };
 
@@ -87,6 +128,7 @@ export interface ISceneOutput {
   visual_description: string;
   manim_code: string;
   video_url?: string;
+  audio_url?: string;
   status: 'completed' | 'failed';
   error_message?: string;
   correction_attempts?: number;

@@ -11,21 +11,26 @@
     "lint:fix": "eslint . --ext .ts --fix",
     "prettier": "prettier --check \"src/**/*.ts\"",
     "prettier:fix": "prettier --write \"src/**/*.ts\"",
-    "setup-videos": "node scripts/setup-video-dir.js"
+    "setup-videos": "node scripts/setup-video-dir.js",
+    "setup-tts": "node scripts/setup-eleven-labs.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@google/genai": "^0.14.1",
     "axios": "^1.9.0",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
+    "elevenlabs-node": "^2.0.3",
     "express": "^5.1.0",
+    "fluent-ffmpeg": "^2.1.3",
     "helmet": "^8.1.0",
     "morgan": "^1.10.0",
-    "zod": "^3.24.4"
+    "zod": "^3.24.4",
+    "@google-cloud/storage": "^7.7.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.18",

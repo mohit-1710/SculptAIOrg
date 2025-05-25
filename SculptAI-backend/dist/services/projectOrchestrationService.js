@@ -47,7 +47,20 @@ export const processStoryboardToVideoScenes = async (projectId, storyboard, proj
                         });
                     }
                     // Attempt to render the scene
-                    const videoUrl = await manimService.renderManimScene(manimCode, `${projectId}_scene_${sceneNumber}`);
+                    const renderResult = await manimService.renderManimScene(manimCode, `${projectId}_scene_${sceneNumber}`, sceneData.narration // Pass narration text for TTS
+                    );
+                    // Handle the new response format which could be an object with video_url and audio_url
+                    let videoUrl;
+                    let audioUrl;
+                    if (typeof renderResult === 'string') {
+                        // Legacy format - just a video URL string
+                        videoUrl = renderResult;
+                    }
+                    else if (typeof renderResult === 'object') {
+                        // New format - object with video_url and optional audio_url
+                        videoUrl = renderResult.video_url;
+                        audioUrl = renderResult.audio_url;
+                    }
                     sceneProcessedSuccessfully = true;
                     // Return successful scene output
                     return {
@@ -57,6 +70,7 @@ export const processStoryboardToVideoScenes = async (projectId, storyboard, proj
                         visual_description: sceneData.visual_description,
                         manim_code: manimCode,
                         video_url: videoUrl,
+                        audio_url: audioUrl,
                         status: 'completed',
                         correction_attempts: correctionAttempts
                     };

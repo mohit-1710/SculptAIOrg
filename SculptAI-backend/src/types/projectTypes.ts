@@ -32,6 +32,7 @@ export interface ISceneOutput {
   visual_description: string;
   manim_code: string;
   video_url?: string;
+  audio_url?: string;
   status: 'completed' | 'failed';
   error_message?: string;
   correction_attempts?: number;

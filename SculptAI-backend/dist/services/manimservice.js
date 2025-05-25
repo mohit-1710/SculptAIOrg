@@ -1,8 +1,11 @@
 // src/services/manimService.ts
 import axios from 'axios';
+import * as path from 'path';
 import config from '../config/index.js';
 import logger from '../utils/logger.js';
 import { AppError } from '../utils/AppError.js';
+import { generateNarrationAudio, mergeVideoWithAudio } from './ttsService.js';
+import { uploadVideo } from './storageService.js';
 /**
  * Common Manim import issues and their fixes
  */
@@ -28,7 +31,7 @@ const sanitizeManimCode = (manimCode) => {
     sanitizedCode = sanitizedCode.replace(/(\")(.*)(\\")(.*)(\")/g, '$1$2\\\\$3$4$5');
     return sanitizedCode;
 };
-export const renderManimScene = async (manimCode, sceneId) => {
+export const renderManimScene = async (manimCode, sceneId, narrationText) => {
     logger.info(`Sending Manim code to render service for scene ID: ${sceneId}`);
     logger.debug(`Manim code for ${sceneId} (first 150 chars): ${manimCode.substring(0, 150)}...`);
     if (!config.manimRenderService.endpoint) {
@@ -54,24 +57,45 @@ export const renderManimScene = async (manimCode, sceneId) => {
                     videoUrl: response.data.video_url,
                     sceneId
                 });
-                return response.data.video_url;
+                // If narration is enabled and text is provided, add TTS
+                if (config.tts.enabled && narrationText) {
+                    // Generate narration audio
+                    const audioUrl = await generateNarrationAudio(narrationText, sceneId);
+                    // Return object with both video and audio URLs
+                    return {
+                        video_url: response.data.video_url,
+                        audio_url: audioUrl
+                    };
+                }
+                return { video_url: response.data.video_url };
             }
             // Check for video_filename_on_host (local file case)
             else if (response.data.video_filename_on_host) {
                 // Get the filename from the response
                 const filename = response.data.video_filename_on_host;
                 // Log the original local path for debugging
-                const localVideoPath = `${config.manimRenderService.outputDir}/${filename}`;
+                const localVideoPath = path.join(config.manimRenderService.outputDir, filename);
                 logger.info(`Manim render service successfully rendered scene ${sceneId} to local file:`, {
                     videoFilename: filename,
                     localVideoPath,
                     sceneId
                 });
-                // Instead of returning the local file path, return a URL using the configured static URL prefix
-                // This creates a URL that the frontend can use to request the file from the server
-                const videoUrl = `${config.manimRenderService.staticUrlPrefix}/${filename}`;
-                logger.info(`Converted local path to URL: ${videoUrl}`);
-                return videoUrl;
+                
+                // Upload the video file to Google Cloud Storage
+                const videoUrl = await uploadVideo(localVideoPath, sceneId);
+                logger.info(`Video file uploaded to Google Cloud Storage: ${videoUrl}`);
+                
+                // If narration is enabled and text is provided, add TTS
+                if (config.tts.enabled && narrationText) {
+                    // Generate narration audio (will be uploaded to cloud storage)
+                    const audioUrl = await generateNarrationAudio(narrationText, sceneId);
+                    // Return object with both video and audio URLs
+                    return {
+                        video_url: videoUrl,
+                        audio_url: audioUrl
+                    };
+                }
+                return { video_url: videoUrl };
             }
             else if (response.data.error) { // Renderer might have returned 200 but with an error message
                 logger.error('Manim render service returned 200 but with an error in its payload.', {
@@ -198,4 +222,48 @@ export const renderManimScene = async (manimCode, sceneId) => {
         });
     }
 };
+/**
+ * Process a video with narration by generating TTS audio and merging it with the video
+ * @param videoPath Path to the video file (could be a URL or local path)
+ * @param narrationText Text to convert to speech
+ * @param sceneId Unique identifier for the scene
+ * @returns Path to the processed video file with narration
+ */
+async function processVideoWithNarration(videoPath, narrationText, sceneId) {
+    try {
+        logger.info(`Processing video with narration for scene ${sceneId}`);
+        
+        // 1. Generate narration audio using Eleven Labs (will be uploaded to cloud storage)
+        const audioUrl = await generateNarrationAudio(narrationText, sceneId);
+        
+        // For cloud storage case, we'll just return both URLs separately
+        // The front-end will handle playing the video with the audio
+        if (videoPath.startsWith('http')) {
+            logger.info(`Using cloud storage URLs for video and audio: video=${videoPath}, audio=${audioUrl}`);
+            return videoPath;
+        }
+        
+        // If it's a local path, we need to upload it to cloud storage
+        const videoUrl = await uploadVideo(videoPath, sceneId);
+        logger.info(`Uploaded video to cloud storage: ${videoUrl}`);
+        
+        return videoUrl;
+    } catch (error) {
+        logger.error(`Error processing video with narration for scene ${sceneId}:`, error);
+        // If processing fails, just return the original video path
+        if (videoPath.startsWith('http')) {
+            return videoPath;
+        }
+        
+        // Try to upload the original video to cloud storage as a fallback
+        try {
+            const videoUrl = await uploadVideo(videoPath, sceneId);
+            logger.info(`Fallback: Uploaded original video to cloud storage: ${videoUrl}`);
+            return videoUrl;
+        } catch (uploadError) {
+            logger.error(`Failed to upload original video to cloud storage:`, uploadError);
+            return videoPath;
+        }
+    }
+}
 //# sourceMappingURL=manimservice.js.map

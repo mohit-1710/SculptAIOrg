@@ -7,6 +7,7 @@ import re # Import re for regex parsing
 from flask import Flask, request, jsonify
 # from werkzeug.utils import secure_filename # Not strictly needed for code input
 from dotenv import load_dotenv
+from google.cloud import storage
 
 # --- Load Environment Variables ---
 load_dotenv('../.env') # Load .env from the parent directory relative to app/main.py
@@ -26,45 +27,105 @@ MANIM_QUALITY_FLAG = os.environ.get("MANIM_QUALITY_FLAG", "-ql")
 MANIM_SCENE_CLASS_NAME = os.environ.get("MANIM_SCENE_CLASS_NAME", "GeneratedScene")
 MANIM_EXECUTION_TIMEOUT = int(os.environ.get("MANIM_EXECUTION_TIMEOUT_SECONDS", "300"))
 
+# Google Cloud Storage configuration
+GCS_PROJECT_ID = os.environ.get("GCS_PROJECT_ID")
+GCS_BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME")
+GCS_CREDENTIALS_FILE = os.environ.get("GCS_KEY_FILE")
+USE_CLOUD_STORAGE = bool(os.environ.get("USE_CLOUD_STORAGE", "False").lower() == "true" and GCS_BUCKET_NAME)
+GCS_BASE_URL = os.environ.get("GCS_BASE_URL", f"https://storage.googleapis.com/{GCS_BUCKET_NAME}" if GCS_BUCKET_NAME else "")
+
 os.makedirs(TEMP_RENDER_DIR, exist_ok=True)
 os.makedirs(CONTAINER_OUTPUT_VIDEO_DIR, exist_ok=True) # Ensure this exists in container
 
-
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# Initialize Google Cloud Storage client if configured
+storage_client = None
+if USE_CLOUD_STORAGE:
+    try:
+        if GCS_CREDENTIALS_FILE:
+            storage_client = storage.Client.from_service_account_json(GCS_CREDENTIALS_FILE)
+        else:
+            storage_client = storage.Client(project=GCS_PROJECT_ID)
+        logging.info(f"Google Cloud Storage initialized for bucket: {GCS_BUCKET_NAME}")
+    except Exception as e:
+        logging.error(f"Failed to initialize Google Cloud Storage: {e}")
+        storage_client = None
+else:
+    logging.info("Google Cloud Storage is not configured or disabled.")
 
 # --- Helper Functions ---
 def generate_unique_id():
     return uuid.uuid4().hex
 
-def save_locally_and_get_host_accessible_path(job_dir_in_container: str, 
-                                              temp_video_path_in_container: str,
-                                              output_dir_in_container: str,
-                                              scene_identifier_for_filename: str):
+def save_locally_and_get_host_accessible_path(job_dir, temp_video_path, output_dir, scene_identifier):
     """
-    Copies the rendered video to a designated output directory within the container
-    (which is volume-mounted from the host) and returns a *conceptual* path
-    or identifier that the calling service can use.
-    For true accessibility, the Node.js service would need to know how to map this.
-    For simplicity in this API response, we'll return the filename.
+    Copy the video file from the temporary job directory to the output directory
+    that's mounted from the host, making it accessible there.
+    Returns the filename of the saved file.
     """
-    if not os.path.exists(temp_video_path_in_container):
-        logging.error(f"Temporary video file not found at {temp_video_path_in_container}")
+    try:
+        # Make sure source file exists
+        if not os.path.exists(temp_video_path):
+            logging.error(f"Source video file not found: {temp_video_path}")
+            return None
+        
+        # Create a unique filename based on scene identifier
+        # Use the scene_identifier as a prefix for the filename, but add a hash for uniqueness
+        base_name = f"{scene_identifier}_{generate_unique_id()[:8]}.mp4"
+        
+        # Destination path in the container output directory
+        dest_path = os.path.join(output_dir, base_name)
+        
+        # Copy the file to the mounted directory
+        shutil.copy2(temp_video_path, dest_path)
+        
+        if not os.path.exists(dest_path):
+            logging.error(f"Failed to copy to destination: {dest_path}")
+            return None
+            
+        logging.info(f"Video saved to {dest_path} (accessible on host)")
+        
+        return base_name
+    except Exception as e:
+        logging.error(f"Error saving video to host-accessible location: {e}")
         return None
 
-    # Create a more user-friendly filename
-    final_video_filename = f"{scene_identifier_for_filename}_{generate_unique_id()}.mp4"
-    final_video_path_in_container = os.path.join(output_dir_in_container, final_video_filename)
-
+def upload_to_cloud_storage(local_file_path, scene_identifier):
+    """
+    Upload a file to Google Cloud Storage and return the public URL.
+    """
+    if not storage_client or not GCS_BUCKET_NAME:
+        logging.error("Cannot upload to Google Cloud Storage: client or bucket not configured")
+        return None
+    
     try:
-        shutil.copy(temp_video_path_in_container, final_video_path_in_container)
-        logging.info(f"Video copied to container output directory: {final_video_path_in_container}")
-        # This function now returns the FILENAME. The actual accessibility depends on the Docker mount.
-        # The Node.js backend won't directly use this path to serve the file. It's more for confirmation.
-        # The Node.js backend would know the host path where these are saved if it needs to list them or process them later.
-        return final_video_filename # Return the filename for the response
+        # Create a unique filename based on scene identifier
+        filename = os.path.basename(local_file_path)
+        base_name, extension = os.path.splitext(filename)
+        
+        # Use the scene_identifier as a prefix for the filename, but add a hash for uniqueness
+        destination_blob_name = f"videos/{scene_identifier}_{generate_unique_id()[:8]}{extension}"
+        
+        # Get bucket
+        bucket = storage_client.bucket(GCS_BUCKET_NAME)
+        
+        # Upload file
+        blob = bucket.blob(destination_blob_name)
+        blob.upload_from_filename(local_file_path)
+        
+        # Make the blob publicly accessible
+        blob.make_public()
+        
+        # Get the public URL
+        video_url = blob.public_url
+        
+        logging.info(f"Uploaded {local_file_path} to {destination_blob_name} in bucket {GCS_BUCKET_NAME}")
+        logging.info(f"Public URL: {video_url}")
+        
+        return video_url
     except Exception as e:
-        logging.error(f"Error copying video to output directory {output_dir_in_container}: {e}")
+        logging.error(f"Error uploading to Google Cloud Storage: {e}")
         return None
 
 def parse_manim_errors(stderr: str, stdout: str) -> dict:
@@ -232,6 +293,22 @@ def render_manim_scene_endpoint():
             logging.error(f"Manim STDERR:\n{process.stderr}")
             return jsonify({"error": "Manim output video file not found after rendering."}), 500
 
+        # If cloud storage is configured, upload the video to Google Cloud Storage
+        if USE_CLOUD_STORAGE and storage_client:
+            video_url = upload_to_cloud_storage(temp_video_path_in_container, scene_identifier)
+            
+            if video_url:
+                logging.info(f"Manim scene {scene_identifier} (job {job_id}) rendered and uploaded to Google Cloud Storage: {video_url}")
+                
+                return jsonify({
+                    "message": "Manim scene rendered and uploaded to Google Cloud Storage.",
+                    "video_url": video_url,
+                    "scene_identifier": scene_identifier
+                }), 200
+            else:
+                logging.error(f"Failed to upload video to Google Cloud Storage for job {job_id}.")
+                # Fall back to local storage if cloud upload fails
+        
         # Save the file to the designated (mounted) output directory
         # The CONTAINER_OUTPUT_VIDEO_DIR is what will be mapped from your host.
         saved_filename = save_locally_and_get_host_accessible_path(

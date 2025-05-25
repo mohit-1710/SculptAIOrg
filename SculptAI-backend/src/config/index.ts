@@ -61,6 +61,18 @@ const config = {
   },
 
   /**
+   * Google Cloud Storage configuration for storing videos and audio files
+   */
+  storage: {
+    googleCloud: {
+      projectId: process.env.GCS_PROJECT_ID,
+      keyFilename: process.env.GCS_KEY_FILE,
+      bucketName: process.env.GCS_BUCKET_NAME || 'sculptai-media',
+      baseUrl: process.env.GCS_BASE_URL || `https://storage.googleapis.com/${process.env.GCS_BUCKET_NAME || 'sculptai-media'}`
+    }
+  },
+
+  /**
    * Manim Rendering Service configurations.
    */
   manimRenderService: {
@@ -69,6 +81,17 @@ const config = {
     outputDir: process.env.MANIM_OUTPUT_DIR || '/manim-videos', // Path where videos are stored and accessible
     useStaticServing: process.env.MANIM_USE_STATIC_SERVING === 'true',
     staticUrlPrefix: process.env.MANIM_STATIC_URL_PREFIX || '/videos', // URL prefix if static serving is enabled
+  },
+
+  /**
+   * Text-to-Speech configurations
+   */
+  tts: {
+    enabled: !!process.env.ELEVENLABS_API_KEY,
+    elevenLabs: {
+      apiKey: process.env.ELEVENLABS_API_KEY,
+      defaultVoiceId: process.env.ELEVENLABS_DEFAULT_VOICE_ID || 'EXAVITQu4vr4xnSDxMaL', // Default to "Rachel" voice
+    },
   },
 
   /**

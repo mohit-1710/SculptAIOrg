@@ -16,11 +16,96 @@ export default function UserPage() {
   const [isVideoLoading, setIsVideoLoading] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const [generationProgress, setGenerationProgress] = useState(0);
+  const [isAudioLoaded, setIsAudioLoaded] = useState(false);
+  const [audioError, setAudioError] = useState<string | null>(null);
+
+  // Handle audio-video synchronization
+  useEffect(() => {
+    const videoElement = videoRef.current;
+    const audioElement = audioRef.current;
+    
+    if (!videoElement || !audioElement) return;
+
+    const syncAudioWithVideo = () => {
+      if (Math.abs(audioElement.currentTime - videoElement.currentTime) > 0.3) {
+        audioElement.currentTime = videoElement.currentTime;
+      }
+      if (!audioElement.paused && videoElement.paused) {
+        audioElement.pause();
+      } else if (audioElement.paused && !videoElement.paused) {
+        audioElement.play().catch(error => {
+          console.error('Error playing audio:', error);
+        });
+      }
+    };
+
+    const handleVideoPlay = () => {
+      // Try to play the audio element if it exists and isn't errored
+      if (!audioError && audioElement.paused) {
+        audioElement.play().catch(error => {
+          console.error('Error playing audio:', error);
+        });
+      }
+      
+      // Additionally, if external audio failed but we have narration text, use browser TTS
+      if (audioError && selectedScene?.narration && 'speechSynthesis' in window) {
+        useBrowserTTS(selectedScene.narration);
+      }
+    };
+
+    const handleVideoPause = () => {
+      // Pause audio element if playing
+      if (!audioElement.paused) {
+        audioElement.pause();
+      }
+      
+      // Also pause any speech synthesis
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.pause();
+      }
+    };
+
+    const handleVideoSeeked = () => {
+      audioElement.currentTime = videoElement.currentTime;
+      
+      // If using speech synthesis, cancel and restart at new position
+      if (audioError && selectedScene?.narration && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        // Wait a moment for the video to stabilize after seeking
+        setTimeout(() => {
+          if (!videoElement.paused) {
+            useBrowserTTS(selectedScene.narration);
+          }
+        }, 100);
+      }
+    };
+
+    videoElement.addEventListener('play', handleVideoPlay);
+    videoElement.addEventListener('pause', handleVideoPause);
+    videoElement.addEventListener('seeked', handleVideoSeeked);
+    
+    // Sync audio with video periodically
+    const syncInterval = setInterval(syncAudioWithVideo, 1000);
+    
+    return () => {
+      videoElement.removeEventListener('play', handleVideoPlay);
+      videoElement.removeEventListener('pause', handleVideoPause);
+      videoElement.removeEventListener('seeked', handleVideoSeeked);
+      clearInterval(syncInterval);
+      // Cancel any ongoing speech when unmounting
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, [audioError, selectedScene]);
 
   // Handle auto-play functionality for scenes
   useEffect(() => {
     const videoElement = videoRef.current;
+    const audioElement = audioRef.current;
+    
     if (!videoElement) return;
 
     const handleVideoEnded = () => {
@@ -49,6 +134,47 @@ export default function UserPage() {
       videoElement.removeEventListener('ended', handleVideoEnded);
     };
   }, [currentProject, selectedScene]);
+
+  // Add Web Speech API fallback for narration
+  const useBrowserTTS = (text: string) => {
+    if (!('speechSynthesis' in window)) return;
+    
+    // Cancel any ongoing speech
+    window.speechSynthesis.cancel();
+    
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 0.9; // Slightly slower speech rate
+    utterance.pitch = 1;
+    
+    // Try to find an English voice
+    const voices = window.speechSynthesis.getVoices();
+    const englishVoice = voices.find(voice => voice.lang.includes('en-'));
+    if (englishVoice) {
+      utterance.voice = englishVoice;
+    }
+    
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const handleAudioError = () => {
+    setAudioError("Unable to load audio narration. Using browser speech instead.");
+    setIsAudioLoaded(false);
+    console.error('Audio failed to load:', selectedScene?.audio_url);
+    
+    // Fall back to browser's speech synthesis if available
+    if (selectedScene?.narration && 'speechSynthesis' in window) {
+      // Add a slight delay to allow the video to start playing first
+      setTimeout(() => {
+        useBrowserTTS(selectedScene.narration);
+      }, 500);
+    }
+  };
+
+  const handleAudioLoad = () => {
+    setIsAudioLoaded(true);
+    setAudioError(null);
+    console.log('Audio loaded successfully:', selectedScene?.audio_url);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -147,6 +273,10 @@ export default function UserPage() {
   const handleSceneSelect = (scene: ISceneOutput) => {
     if (scene.status !== 'completed') return;
     
+    // Reset audio states
+    setIsAudioLoaded(false);
+    setAudioError(null);
+    
     // Process the scene's video URL if it's a local file path
     if (scene.video_url) {
       // Check if it's a file:/// URL or a local Windows path
@@ -175,6 +305,44 @@ export default function UserPage() {
     
     setIsVideoLoading(true);
     setVideoError(null);
+    
+    // Generate audio URL from scene if not present
+    if (!scene.audio_url && scene.scene_number) {
+      const serverUrl = import.meta.env.VITE_API_URL?.split('/api')[0] || 'http://localhost:5000';
+      const projectId = currentProject?.projectId;
+      const audioFileName = `${projectId}_scene_${scene.scene_number}_narration.mp3`;
+      const generatedAudioUrl = `${serverUrl}/videos/${audioFileName}`;
+      
+      // First check if the audio file exists
+      preCheckAudioExists(generatedAudioUrl).then(exists => {
+        if (exists) {
+          // Create a new scene object with the generated audio URL
+          const sceneWithAudio = {
+            ...scene,
+            audio_url: generatedAudioUrl
+          };
+          
+          setSelectedScene(sceneWithAudio);
+          console.log('Generated audio URL:', generatedAudioUrl);
+        } else {
+          // If audio doesn't exist, just set the scene without audio URL
+          console.warn('Audio file does not exist:', generatedAudioUrl);
+          setAudioError("Narration audio not available");
+          setSelectedScene(scene);
+        }
+      });
+    }
+  };
+
+  // Check if an audio file exists before attempting to load it
+  const preCheckAudioExists = async (url: string): Promise<boolean> => {
+    try {
+      const response = await fetch(url, { method: 'HEAD' });
+      return response.ok;
+    } catch (error) {
+      console.error('Error checking audio file existence:', error);
+      return false;
+    }
   };
 
   const handleVideoError = () => {
@@ -357,6 +525,65 @@ export default function UserPage() {
                 >
                   Your browser does not support the video tag.
                 </video>
+                
+                {/* Audio element (hidden) for separate narration */}
+                {selectedScene.audio_url && (
+                  <audio
+                    ref={audioRef}
+                    src={selectedScene.audio_url}
+                    onError={handleAudioError}
+                    onLoadedData={handleAudioLoad}
+                    preload="auto"
+                  />
+                )}
+                
+                {/* Audio status indicator */}
+                {selectedScene.audio_url && (
+                  <div className="absolute top-4 right-4 text-xs px-2 py-1 rounded-full bg-black bg-opacity-60">
+                    {audioError ? (
+                      <span className="text-red-400">Audio unavailable</span>
+                    ) : !isAudioLoaded ? (
+                      <span className="text-yellow-300">Loading audio...</span>
+                    ) : (
+                      <span className="text-green-400">Audio ready</span>
+                    )}
+                  </div>
+                )}
+                
+                {/* Audio controls - new section */}
+                <div className="absolute top-4 left-4 flex space-x-2">
+                  {/* Download narration button - when audio is available */}
+                  {selectedScene.audio_url && !audioError && isAudioLoaded && (
+                    <a 
+                      href={selectedScene.audio_url}
+                      download={`${selectedScene.scene_title.replace(/\s+/g, '_')}_narration.mp3`}
+                      className="bg-black bg-opacity-60 text-white p-2 rounded-full hover:bg-opacity-80 transition-all"
+                      title="Download narration audio"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 16v-12" />
+                      </svg>
+                    </a>
+                  )}
+                  
+                  {/* Regenerate narration using browser TTS */}
+                  {selectedScene.narration && (
+                    <button
+                      onClick={() => {
+                        if (selectedScene.narration && 'speechSynthesis' in window) {
+                          useBrowserTTS(selectedScene.narration);
+                        }
+                      }}
+                      className="bg-black bg-opacity-60 text-white p-2 rounded-full hover:bg-opacity-80 transition-all"
+                      title="Play narration using browser speech"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
                 
                 {/* Fullscreen button */}
                 <button 
