@@ -28,12 +28,13 @@ export interface ILLMCodeGenerationParams {
 export interface ISceneOutput {
   scene_number: number;
   scene_title: string;
-  narration: string; // Retain narration for potential TTS or display
-  manim_code_generated?: string; // The Manim code that was generated (for debugging/potential edit)
-  video_url?: string;            // URL to the rendered video snippet for this scene
-  audio_url?: string;            // (Future) URL to the TTS audio for this scene's narration
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-  error_message?: string;        // Error message if processing this specific scene failed
+  narration: string;
+  visual_description: string;
+  manim_code: string;
+  video_url?: string;
+  status: 'completed' | 'failed';
+  error_message?: string;
+  correction_attempts?: number;
 }
 
 /**

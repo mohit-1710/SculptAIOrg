@@ -36,10 +36,20 @@ app.use((req, res, next) => {
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 app.use((err, req, res, next) => {
     if (err instanceof AppError && err.isOperational) {
-        logger.warn(`Operational error: ${err.message}`, { /* ... */});
+        logger.warn(`Operational error: ${err.message}`, {
+            statusCode: err.statusCode,
+            isOperational: err.isOperational,
+            details: err.details,
+            path: req.path
+        });
     }
     else {
-        logger.error('Unhandled error:', err);
+        logger.error('Unhandled error:', {
+            error: err,
+            message: err.message,
+            stack: err.stack,
+            path: req.path
+        });
     }
     const statusCode = err instanceof AppError ? err.statusCode : 500;
     const message = (err instanceof AppError && err.isOperational) || config.env === 'development'
@@ -49,7 +59,10 @@ app.use((err, req, res, next) => {
         status: 'error',
         statusCode,
         message,
-        ...(config.env === 'development' && !(err instanceof AppError && err.isOperational) && { stack: err.stack }),
+        ...(config.env === 'development' && {
+            details: err instanceof AppError ? err.details : undefined,
+            stack: !(err instanceof AppError && err.isOperational) ? err.stack : undefined
+        })
     });
 });
 export default app;

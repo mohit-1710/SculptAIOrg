@@ -4,13 +4,30 @@ import config from '../config/index.js';
 import logger from '../utils/logger.js';
 import { AppError } from '../utils/AppError.js';
 /**
- * renderManimScene
- *
- * Sends Manim Python code to the rendering service.
- * @param manimCode The Manim Python code string.
- * @param sceneId A unique identifier for the scene (for tracking/logging).
- * @returns A Promise resolving to the URL of the rendered video.
+ * Common Manim import issues and their fixes
  */
+const COMMON_IMPORT_FIXES = {
+    'BLACK': 'Replace "from manim.constants import BLACK" with "from manim import BLACK"',
+    'WHITE': 'Replace "from manim.constants import WHITE" with "from manim import WHITE"',
+    'CENTER': 'Replace "from manim import CENTER" with "from manim.constants import ORIGIN"',
+    'rate_functions': 'Replace "from manim.animation.rate_functions" with "from manim.utils.rate_functions"'
+};
+/**
+ * Sanitize Manim code to handle common issues
+ * @param manimCode The original Manim code
+ * @returns Sanitized Manim code
+ */
+const sanitizeManimCode = (manimCode) => {
+    // Replace HTML <br> tags with newlines
+    let sanitizedCode = manimCode.replace(/<br\s*\/?>/gi, '\n');
+    // Fix common import patterns for Manim v0.18.0
+    sanitizedCode = sanitizedCode
+        .replace(/from\s+manim\.constants\s+import\s+([^;]+)/g, 'from manim import $1')
+        .replace(/from\s+manim\.animation\.rate_functions\s+import\s+([^;]+)/g, 'from manim.utils.rate_functions import $1');
+    // Handle quotes in strings (ensure they're properly escaped)
+    sanitizedCode = sanitizedCode.replace(/(\")(.*)(\\")(.*)(\")/g, '$1$2\\\\$3$4$5');
+    return sanitizedCode;
+};
 export const renderManimScene = async (manimCode, sceneId) => {
     logger.info(`Sending Manim code to render service for scene ID: ${sceneId}`);
     logger.debug(`Manim code for ${sceneId} (first 150 chars): ${manimCode.substring(0, 150)}...`);
@@ -18,51 +35,160 @@ export const renderManimScene = async (manimCode, sceneId) => {
         logger.error("Manim Render Service endpoint is not configured.");
         throw new AppError("Manim Render Service is not configured.", 500, false);
     }
+    // Sanitize the Manim code before sending to renderer
+    const sanitizedManimCode = sanitizeManimCode(manimCode);
     try {
-        const response = await axios.post(// Specify expected response type
-        config.manimRenderService.endpoint, {
-            manim_code: manimCode,
-            scene_identifier: sceneId,
+        const response = await axios.post(`${config.manimRenderService.endpoint}/render`, {
+            manim_code: sanitizedManimCode,
+            scene_id: sceneId,
+            scene_identifier: sceneId // Add scene_identifier parameter with the same value for compatibility
         }, {
             timeout: config.manimRenderService.timeout,
+            allowAbsoluteUrls: true // Enable absolute URLs in responses
         });
-        // Check if the response indicates success and contains a video_url
-        if (response.data && response.data.video_url && typeof response.data.video_url === 'string') {
-            logger.info(`Manim scene ${sceneId} rendered successfully by service. Video URL: ${response.data.video_url}`);
-            return response.data.video_url;
+        // --- Handle 200 Success Cases ---
+        if (response.status === 200) {
+            // Check for video_url first (cloud storage case)
+            if (response.data.video_url) {
+                logger.info(`Manim render service successfully rendered scene ${sceneId} to cloud:`, {
+                    videoUrl: response.data.video_url,
+                    sceneId
+                });
+                return response.data.video_url;
+            }
+            // Check for video_filename_on_host (local file case)
+            else if (response.data.video_filename_on_host) {
+                const videoPath = `${config.manimRenderService.outputDir}/${response.data.video_filename_on_host}`;
+                logger.info(`Manim render service successfully rendered scene ${sceneId} to local file:`, {
+                    videoFilename: response.data.video_filename_on_host,
+                    videoPath,
+                    sceneId
+                });
+                return videoPath;
+            }
+            else if (response.data.error) { // Renderer might have returned 200 but with an error message
+                logger.error('Manim render service returned 200 but with an error in its payload.', {
+                    responseData: response.data,
+                    sceneId
+                });
+                throw new AppError(`Manim rendering service reported an error: ${response.data.error}`, 502, true, {
+                    type: 'RENDERER_PAYLOAD_ERROR_ON_200',
+                    renderer_response: response.data,
+                    original_manim_code: manimCode // Include the original code for debugging
+                });
+            }
+            else {
+                // Successful status code but unexpected payload
+                logger.error('Manim render service returned 200 but with an unexpected payload structure.', {
+                    responseData: response.data,
+                    sceneId
+                });
+                throw new AppError('Manim rendering service returned an unexpected success payload.', 502, true, {
+                    type: 'RENDERER_UNEXPECTED_SUCCESS_PAYLOAD',
+                    renderer_response: response.data,
+                    original_manim_code: manimCode // Include the original code for debugging
+                });
+            }
         }
-        else {
-            // Handle cases where the rendering service might return an error in its JSON body
-            const serviceErrorMessage = response.data?.error || response.data?.message || 'Unknown error from rendering service.';
-            logger.error('Manim render service returned an error or invalid response structure.', {
+        // --- Handle 400 for Linting Errors ---
+        if (response.status === 400 && response.data?.error?.includes('Linting failed')) {
+            logger.warn(`Manim service reported linting errors for scene ${sceneId}:`, {
+                status: response.status,
+                responseData: response.data
+            });
+            throw new AppError(`Linting failed for Manim code in scene ${sceneId}: ${response.data.details_stdout || response.data.error}`, 400, // Keep 400 status
+            true, // Operational error
+            {
+                type: 'LINTING_ERROR',
+                sceneId: sceneId,
+                renderer_response: response.data,
+                original_manim_code: manimCode // Include the original code for debugging
+            });
+        }
+        // --- Handle 500 for Manim Rendering Errors ---
+        if (response.status === 500) {
+            // Check for specific import errors to provide better error messages
+            const stderrText = response.data.details_stderr || '';
+            const importError = Object.keys(COMMON_IMPORT_FIXES).find(key => stderrText.includes(`cannot import name '${key}'`) ||
+                stderrText.includes(`No module named 'manim.animation.rate_functions'`));
+            const errorDetails = importError
+                ? `${response.data.parsed_error || response.data.details_stderr || response.data.error}. Suggestion: ${COMMON_IMPORT_FIXES[importError]}`
+                : response.data.parsed_error || response.data.details_stderr || response.data.error;
+            logger.error('Manim render service returned a 500 error (Manim process failure).', {
+                status: response.status,
                 responseData: response.data,
                 sceneId,
-                serviceErrorMessage,
+                importError: importError ? COMMON_IMPORT_FIXES[importError] : undefined
             });
-            throw new AppError(`Manim rendering service reported an error: ${serviceErrorMessage}`, 502 // Bad Gateway, as our service depends on another
-            );
+            throw new AppError(`Manim rendering process failed for scene ${sceneId}: ${errorDetails}`, 500, // Keep 500 status
+            true, // Operational error
+            {
+                type: 'MANIM_RUNTIME_ERROR',
+                sceneId: sceneId,
+                renderer_response: response.data,
+                original_manim_code: manimCode, // Include the original code for debugging
+                import_error: importError ? COMMON_IMPORT_FIXES[importError] : undefined
+            });
         }
+        // --- Handle Other Error Cases ---
+        if (response.data?.error) {
+            logger.error('Manim render service returned an error payload.', {
+                status: response.status,
+                responseData: response.data,
+                sceneId
+            });
+            throw new AppError(`Manim rendering service failed: ${response.data.error}`, response.status || 502, true, {
+                type: 'RENDERER_GENERIC_ERROR_PAYLOAD',
+                status_code: response.status,
+                renderer_response: response.data,
+                original_manim_code: manimCode // Include the original code for debugging
+            });
+        }
+        // Non-200 status without a specific error in data
+        logger.error('Manim render service returned an unexpected non-200 status or invalid response.', {
+            status: response.status,
+            responseData: response.data,
+            sceneId
+        });
+        throw new AppError('Manim rendering service returned an unexpected response.', response.status || 502, true, {
+            type: 'RENDERER_UNEXPECTED_RESPONSE',
+            status_code: response.status,
+            renderer_response: response.data,
+            original_manim_code: manimCode // Include the original code for debugging
+        });
     }
     catch (error) {
-        const axiosError = error; // Type the error for Axios
+        if (error instanceof AppError)
+            throw error;
+        // Handle Axios errors
+        const axiosError = error;
         if (axiosError.isAxiosError) {
             const responseData = axiosError.response?.data;
-            const serviceErrorMessage = responseData?.error || responseData?.message || axiosError.message;
-            logger.error(`Axios error calling Manim render service for scene ${sceneId}:`, {
-                message: serviceErrorMessage,
-                code: axiosError.code,
-                status: axiosError.response?.status,
-                responseData: responseData,
+            const serviceErrorMessage = responseData?.error || responseData?.details_stderr || responseData?.message || axiosError.message;
+            const errorType = responseData?.type || (axiosError.code === 'ECONNABORTED' || axiosError.code === 'ETIMEDOUT' ? 'TIMEOUT_ERROR' : 'AXIOS_SERVICE_ERROR');
+            const statusCode = axiosError.response?.status || (errorType === 'TIMEOUT_ERROR' ? 504 : 502);
+            logger.error(`Failed to render Manim scene ${sceneId}. Service Error: ${serviceErrorMessage}`, {
+                error: axiosError,
+                responseData,
+                statusCode,
+                errorType
             });
-            if (axiosError.code === 'ECONNABORTED' || axiosError.code === 'ETIMEDOUT') { // Timeout
-                throw new AppError(`Manim rendering for scene ${sceneId} timed out.`, 504); // Gateway Timeout
-            }
-            // Use status from rendering service if available, otherwise 502
-            throw new AppError(`Failed to render Manim scene ${sceneId}. Service Error: ${serviceErrorMessage}`, axiosError.response?.status || 502);
+            throw new AppError(`Failed to render Manim scene ${sceneId}. Service Error: ${serviceErrorMessage}`, statusCode, true, {
+                type: errorType,
+                sceneId,
+                renderer_response: responseData,
+                axios_error_code: axiosError.code,
+                original_manim_code: manimCode // Include the original code for debugging
+            });
         }
-        // For non-Axios errors
+        // Handle unknown errors
         logger.error(`Unexpected error in renderManimScene for scene ${sceneId}:`, error);
-        throw new AppError('An unexpected error occurred while trying to render the Manim scene.', 500, false);
+        throw new AppError('An unexpected error occurred while trying to render the Manim scene.', 500, false, {
+            type: 'UNEXPECTED_MANIM_SERVICE_ERROR',
+            sceneId: sceneId,
+            originalError: error instanceof Error ? error.message : String(error),
+            original_manim_code: manimCode // Include the original code for debugging
+        });
     }
 };
 //# sourceMappingURL=manimservice.js.map

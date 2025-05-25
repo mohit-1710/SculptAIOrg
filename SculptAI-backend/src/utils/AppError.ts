@@ -13,6 +13,7 @@
 export class AppError extends Error {
   public readonly statusCode: number;
   public readonly isOperational: boolean;
+  public readonly details?: any;
 
   /**
    * Creates an instance of AppError.
@@ -21,11 +22,12 @@ export class AppError extends Error {
    * @param isOperational Optional. Indicates if this is an operational error. Defaults to true.
    *                      Set to false for unexpected programming errors.
    */
-  constructor(message: string, statusCode: number, isOperational: boolean = true) {
+  constructor(message: string, statusCode: number, isOperational: boolean = true, details?: any) {
     super(message); // Call the parent Error constructor with the message
 
     this.statusCode = statusCode;
     this.isOperational = isOperational;
+    this.details = details;
 
     // Set the name of the error to the class name
     // This is helpful for identifying the type of error, e.g., in logging.

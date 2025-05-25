@@ -46,14 +46,17 @@ const config = {
      */
     llmModels: {
         scripting: process.env.GEMINI_MODEL_SCRIPTING || 'gemini-2.5-flash-preview-04-17', // Or 'gemini-pro'
-        manimCode: process.env.GEMINI_MODEL_MANIM_CODE || 'gemini-2.5-pro-preview-05-06', // Or 'gemini-1.5-flash-latest'
+        manimCode: process.env.GEMINI_MODEL_MANIM_CODE || 'gemini-2.5-flash-preview-04-17', // Or 'gemini-1.5-flash-latest'
     },
     /**
-     * Manim Rendering Service configurations (you'll add this URL to .env later).
+     * Manim Rendering Service configurations.
      */
     manimRenderService: {
-        endpoint: process.env.MANIM_RENDER_ENDPOINT || 'http://localhost:8080/render', // Default for local dev
+        endpoint: process.env.MANIM_RENDER_ENDPOINT || 'http://localhost:8080',
         timeout: parseInt(process.env.MANIM_RENDER_TIMEOUT_MS || '300000', 10), // 5 minutes
+        outputDir: process.env.MANIM_OUTPUT_DIR || '/manim-videos', // Path where videos are stored and accessible
+        useStaticServing: process.env.MANIM_USE_STATIC_SERVING === 'true',
+        staticUrlPrefix: process.env.MANIM_STATIC_URL_PREFIX || '/videos', // URL prefix if static serving is enabled
     },
     /**
      * Logging configuration.

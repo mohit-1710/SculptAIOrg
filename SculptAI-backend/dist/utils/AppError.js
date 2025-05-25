@@ -17,10 +17,11 @@ export class AppError extends Error {
      * @param isOperational Optional. Indicates if this is an operational error. Defaults to true.
      *                      Set to false for unexpected programming errors.
      */
-    constructor(message, statusCode, isOperational = true) {
+    constructor(message, statusCode, isOperational = true, details) {
         super(message); // Call the parent Error constructor with the message
         this.statusCode = statusCode;
         this.isOperational = isOperational;
+        this.details = details;
         // Set the name of the error to the class name
         // This is helpful for identifying the type of error, e.g., in logging.
         this.name = this.constructor.name;

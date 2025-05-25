@@ -34,7 +34,7 @@ export const validate =
 
       // If validation is successful, proceed to the next handler.
       return next();
-    } catch (error) {
+    } catch (error: unknown) {
       // Check if the error is an instance of ZodError
       if (error instanceof ZodError) {
         // Format Zod errors into a more user-friendly array of messages
@@ -52,7 +52,8 @@ export const validate =
           new AppError(
             `Input validation failed. ${errorMessages.map(e => `${e.field}: ${e.message}`).join('; ')}`,
             400, // Bad Request
-            true // isOperational
+            true, // isOperational
+            { errors: errorMessages }
           )
         );
       }
@@ -60,7 +61,9 @@ export const validate =
       // If it's not a ZodError, it's an unexpected error.
       logger.error('Unexpected error during validation middleware:', error);
       return next(
-        new AppError('An unexpected error occurred during input validation.', 500, false) // false = not operational
+        new AppError('An unexpected error occurred during input validation.', 500, false, {
+          originalError: error instanceof Error ? error.message : String(error)
+        })
       );
     }
   };
